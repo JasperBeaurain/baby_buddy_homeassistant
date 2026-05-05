@@ -37,6 +37,7 @@ from .const import (
     ATTR_NAP,
     ATTR_NOTES,
     ATTR_PUMPING,
+    ATTR_RESULTS,
     ATTR_SLEEP,
     ATTR_START,
     ATTR_TAGS,
@@ -90,6 +91,13 @@ async def async_setup_entry(
             vol.Optional(ATTR_NAME): cv.string,
         },
         "async_start_timer",
+    )
+    platform.async_register_entity_service(
+        "delete_timer",
+        {
+            vol.Required(ATTR_NAME): cv.string,
+        },
+        "async_delete_timer",
     )
 
     platform.async_register_entity_service(
@@ -203,8 +211,20 @@ class BabyBuddyChildTimerSwitch(CoordinatorEntity, SwitchEntity):
     async def async_start_timer(
         self, start: datetime | time | None = None, name: str | None = None
     ) -> None:
-        """Start a new timer for child."""
-        data: dict[str, Any] = {ATTR_CHILD: self.child[ATTR_ID]}
+        """Start a new timer for child.
+        Deletes all existing timers for this child before creating the new one.
+        """
+        child_id = self.child[ATTR_ID]
+
+        # Delete all existing timers for this child first
+        existing = await self.coordinator.client.async_get(
+            ATTR_TIMERS, f"?child={child_id}"
+        )
+        for timer in existing.get(ATTR_RESULTS, []):
+            await self.coordinator.client.async_delete(ATTR_TIMERS, timer[ATTR_ID])
+
+        # Now create the new timer
+        data: dict[str, Any] = {ATTR_CHILD: child_id}
         try:
             data[ATTR_START] = get_datetime_from_time(start or dt_util.now())
         except ValidationError as error:
@@ -214,6 +234,21 @@ class BabyBuddyChildTimerSwitch(CoordinatorEntity, SwitchEntity):
             data[ATTR_NAME] = name
 
         await self.coordinator.client.async_post(ATTR_TIMERS, data)
+        await self.coordinator.async_request_refresh()
+
+    async def async_delete_timer(self, name: str) -> None:
+        """Delete timer(s) matching the given name.
+
+        Only deletes timers with the specified name, leaving other timers intact.
+        This is safe to call even if the timer was already deleted.
+        """
+        child_id = self.child[ATTR_ID]
+        existing = await self.coordinator.client.async_get(
+            ATTR_TIMERS, f"?child={child_id}"
+        )
+        for timer in existing.get(ATTR_RESULTS, []):
+            if timer.get(ATTR_NAME) == name:
+                await self.coordinator.client.async_delete(ATTR_TIMERS, timer[ATTR_ID])
         await self.coordinator.async_request_refresh()
 
     async def async_add_feeding(
