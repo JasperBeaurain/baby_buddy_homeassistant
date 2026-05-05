@@ -565,3 +565,19 @@ start_timer:
       example: Timer name
       selector:
         text:
+
+delete_timer:
+  name: Delete timer
+  description: Delete existing timer
+  target:
+    entity:
+      integration: babybuddy
+      domain: switch
+  fields:
+    name:
+      name: Timer name
+      description: Specify timer name
+      example: Timer name
+      required: true
+      selector:
+        text:
